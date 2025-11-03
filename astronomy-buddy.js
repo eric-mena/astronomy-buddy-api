@@ -7,9 +7,6 @@ require('dotenv').config();
 const config = {
 	appId: process.env.ASTRONOMY_API_APP_ID,
 	appSecret: process.env.ASTRONOMY_API_APP_SECRET,
-	latitude: parseFloat(process.env.LATITUDE),
-	longitude: parseFloat(process.env.LONGITUDE),
-	elevation: parseFloat(process.env.ELEVATION),
 	viewingLevel: process.env.VIEWING_LEVEL || 'naked-eye',
 	eveningStartHour: parseInt(process.env.EVENING_START_HOUR || '21'),
 	eveningEndHour: parseInt(process.env.EVENING_END_HOUR || '2'),
@@ -41,13 +38,13 @@ const viewingCapabilities = {
 };
 
 // Weather condition interpretation from 7timer
-function interpretWeatherConditions(data) {
+function interpretWeatherConditions(data, eveningStartHour, eveningEndHour) {
 	const eveningData = data.dataseries.filter(point => {
 		const hour = (point.timepoint % 24);
-		if (config.eveningEndHour > config.eveningStartHour) {
-			return hour >= config.eveningStartHour && hour <= config.eveningEndHour;
+		if (eveningEndHour > eveningStartHour) {
+			return hour >= eveningStartHour && hour <= eveningEndHour;
 		} else {
-			return hour >= config.eveningStartHour || hour <= config.eveningEndHour;
+			return hour >= eveningStartHour || hour <= eveningEndHour;
 		}
 	});
 
@@ -118,9 +115,9 @@ function interpretWeatherConditions(data) {
 }
 
 // Get weather conditions from 7timer
-async function getWeatherConditions() {
+async function getWeatherConditions(latitude, longitude) {
 	const apiUrl = `https://www.7timer.info/bin/astro.php?` +
-		`lon=${config.longitude}&lat=${config.latitude}&ac=0&lang=en&unit=imperial&output=json&tzshift=0`;
+		`lon=${longitude}&lat=${latitude}&ac=0&lang=en&unit=imperial&output=json&tzshift=0`;
 
 	try {
 		const parsedUrl = url.parse(apiUrl);
@@ -154,14 +151,14 @@ async function getWeatherConditions() {
 }
 
 // Rating criteria for viewing quality
-function getViewingRating(body, viewingCaps) {
+function getViewingRating(body, viewingCaps, viewingLevel) {
 	const altitude = parseFloat(body.position.horizontal.altitude.degrees);
 	const magnitude = body.extraInfo.magnitude;
 
 	if (altitude < 0) return { rating: 'not-visible', reason: 'Below horizon' };
 	if (altitude < viewingCaps.minAltitude) return { rating: 'poor', reason: 'Too low on horizon' };
 	if (magnitude !== null && magnitude > viewingCaps.maxMagnitude) {
-		return { rating: 'too-faint', reason: `Too faint for ${config.viewingLevel === 'naked-eye' ? 'naked eye' : 'your telescope'}` };
+		return { rating: 'too-faint', reason: `Too faint for ${viewingLevel === 'naked-eye' ? 'naked eye' : 'your telescope'}` };
 	}
 
 	let rating = 'fair';
@@ -236,14 +233,14 @@ function getCurrentDate() {
 }
 
 // Analyze targets for a specific time
-async function analyzeTargets(date, time) {
+async function analyzeTargets(date, time, latitude, longitude, elevation, viewingLevel) {
 	const apiUrl = `https://api.astronomyapi.com/api/v2/bodies/positions?` +
-		`latitude=${config.latitude}&longitude=${config.longitude}&elevation=${config.elevation}` +
+		`latitude=${latitude}&longitude=${longitude}&elevation=${elevation}` +
 		`&from_date=${date}&to_date=${date}&time=${time}`;
 
 	try {
 		const response = await makeRequest(apiUrl);
-		const viewingCaps = viewingCapabilities[config.viewingLevel];
+		const viewingCaps = viewingCapabilities[viewingLevel];
 		const results = [];
 
 		for (const row of response.data.table.rows) {
@@ -251,7 +248,7 @@ async function analyzeTargets(date, time) {
 
 			if (body.id === 'sun' || body.id === 'earth') continue;
 
-			const viewingInfo = getViewingRating(body, viewingCaps);
+			const viewingInfo = getViewingRating(body, viewingCaps, viewingLevel);
 
 			results.push({
 				name: body.name,
@@ -303,18 +300,18 @@ function getDirection(azimuth) {
 }
 
 // Main function to get viewing data
-async function getViewingData() {
-	const viewingCaps = viewingCapabilities[config.viewingLevel];
+async function getViewingData(latitude, longitude, elevation, viewingLevel, eveningStartHour, eveningEndHour) {
+	const viewingCaps = viewingCapabilities[viewingLevel];
 	const date = getCurrentDate();
 
 	const result = {
 		date,
 		location: {
-			latitude: config.latitude,
-			longitude: config.longitude,
-			elevation: config.elevation
+			latitude,
+			longitude,
+			elevation
 		},
-		viewingLevel: config.viewingLevel,
+		viewingLevel,
 		viewingCapabilities: viewingCaps,
 		weather: null,
 		targets: {
@@ -326,8 +323,8 @@ async function getViewingData() {
 
 	// Get weather conditions
 	try {
-		const weatherData = await getWeatherConditions();
-		result.weather = interpretWeatherConditions(weatherData);
+		const weatherData = await getWeatherConditions(latitude, longitude);
+		result.weather = interpretWeatherConditions(weatherData, eveningStartHour, eveningEndHour);
 	} catch (error) {
 		result.weather = {
 			error: 'Weather data unavailable',
@@ -337,11 +334,11 @@ async function getViewingData() {
 
 	// Generate hours to check
 	const hours = [];
-	let currentHour = config.eveningStartHour;
+	let currentHour = eveningStartHour;
 	while (true) {
 		hours.push(currentHour);
 		currentHour = (currentHour + 1) % 24;
-		if (currentHour === (config.eveningEndHour + 1) % 24) break;
+		if (currentHour === (eveningEndHour + 1) % 24) break;
 		if (hours.length > 12) break;
 	}
 
@@ -352,7 +349,7 @@ async function getViewingData() {
 		const time = formatTime(hour);
 
 		try {
-			const targets = await analyzeTargets(date, time);
+			const targets = await analyzeTargets(date, time, latitude, longitude, elevation, viewingLevel);
 
 			for (const target of targets) {
 				if (!targetsByName.has(target.name)) {
@@ -456,7 +453,7 @@ const server = http.createServer(async (req, res) => {
 	// Main viewing data endpoint
 	if (parsedUrl.pathname === '/viewing-data' && req.method === 'GET') {
 		try {
-			// Validate configuration
+			// Validate API configuration
 			if (!config.appId || !config.appSecret) {
 				res.writeHead(500, { 'Content-Type': 'application/json' });
 				res.end(JSON.stringify({
@@ -466,16 +463,80 @@ const server = http.createServer(async (req, res) => {
 				return;
 			}
 
-			if (isNaN(config.latitude) || isNaN(config.longitude) || isNaN(config.elevation)) {
-				res.writeHead(500, { 'Content-Type': 'application/json' });
+			// Parse query parameters
+			const query = parsedUrl.query;
+
+			// Required parameters
+			const latitude = parseFloat(query.latitude);
+			const longitude = parseFloat(query.longitude);
+			const elevation = parseFloat(query.elevation);
+
+			// Validate required parameters
+			if (isNaN(latitude) || isNaN(longitude) || isNaN(elevation)) {
+				res.writeHead(400, { 'Content-Type': 'application/json' });
 				res.end(JSON.stringify({
-					error: 'Configuration error',
-					message: 'LATITUDE, LONGITUDE, and ELEVATION must be set'
+					error: 'Invalid parameters',
+					message: 'latitude, longitude, and elevation are required and must be valid numbers',
+					example: '/viewing-data?latitude=47.6062&longitude=-122.3321&elevation=50'
 				}));
 				return;
 			}
 
-			const data = await getViewingData();
+			// Validate latitude range
+			if (latitude < -90 || latitude > 90) {
+				res.writeHead(400, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify({
+					error: 'Invalid latitude',
+					message: 'latitude must be between -90 and 90'
+				}));
+				return;
+			}
+
+			// Validate longitude range
+			if (longitude < -180 || longitude > 180) {
+				res.writeHead(400, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify({
+					error: 'Invalid longitude',
+					message: 'longitude must be between -180 and 180'
+				}));
+				return;
+			}
+
+			// Optional parameters with defaults
+			const viewingLevel = query.viewingLevel || config.viewingLevel;
+			const eveningStartHour = query.eveningStartHour ? parseInt(query.eveningStartHour) : config.eveningStartHour;
+			const eveningEndHour = query.eveningEndHour ? parseInt(query.eveningEndHour) : config.eveningEndHour;
+
+			// Validate viewing level
+			if (!viewingCapabilities[viewingLevel]) {
+				res.writeHead(400, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify({
+					error: 'Invalid viewing level',
+					message: 'viewingLevel must be one of: naked-eye, entry, intermediate, advanced'
+				}));
+				return;
+			}
+
+			// Validate hours
+			if (isNaN(eveningStartHour) || eveningStartHour < 0 || eveningStartHour > 23) {
+				res.writeHead(400, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify({
+					error: 'Invalid eveningStartHour',
+					message: 'eveningStartHour must be between 0 and 23'
+				}));
+				return;
+			}
+
+			if (isNaN(eveningEndHour) || eveningEndHour < 0 || eveningEndHour > 23) {
+				res.writeHead(400, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify({
+					error: 'Invalid eveningEndHour',
+					message: 'eveningEndHour must be between 0 and 23'
+				}));
+				return;
+			}
+
+			const data = await getViewingData(latitude, longitude, elevation, viewingLevel, eveningStartHour, eveningEndHour);
 			res.writeHead(200, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify(data, null, 2));
 		} catch (error) {
@@ -500,7 +561,7 @@ const server = http.createServer(async (req, res) => {
 // Start server
 server.listen(config.port, () => {
 	console.log(`Astronomy Buddy API running on port ${config.port}`);
-	console.log(`View data at: http://localhost:${config.port}/viewing-data`);
+	console.log(`Example: http://localhost:${config.port}/viewing-data?latitude=47.6062&longitude=-122.3321&elevation=50`);
 	console.log(`Health check: http://localhost:${config.port}/health`);
 });
 
