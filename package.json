@@ -1,17 +1,19 @@
 {
-	"name": "telescope-viewing-targets",
+	"name": "astronomy-buddy-api",
 	"version": "1.0.0",
-	"description": "Determine optimal telescope viewing targets based on your location, equipment, and weather conditions",
-	"main": "telescope-targets.js",
+	"description": "REST API for astronomy viewing recommendations based on location, equipment, and weather",
+	"main": "astronomy-buddy-api.js",
 	"scripts": {
-		"start": "node telescope-targets.js"
+		"start": "node astronomy-buddy-api.js"
 	},
 	"keywords": [
 		"astronomy",
+		"api",
 		"telescope",
 		"stargazing",
 		"planets",
-		"weather"
+		"weather",
+		"rest-api"
 	],
 	"author": "",
 	"license": "MIT",
