@@ -98,6 +98,59 @@ async function getLocationName(latitude, longitude) {
 	}
 }
 
+// Add this helper function after the getDirection function
+function convertToLightDistance(distanceKm) {
+	const LIGHT_SPEED_KM_S = 299792.458; // km per second
+
+	const lightSeconds = distanceKm / LIGHT_SPEED_KM_S;
+
+	// Less than 60 seconds
+	if (lightSeconds < 60) {
+		return {
+			value: parseFloat(lightSeconds.toFixed(2)),
+			unit: 'light-seconds',
+			string: `${lightSeconds.toFixed(2)} light seconds away`
+		};
+	}
+
+	const lightMinutes = lightSeconds / 60;
+	// Less than 60 minutes
+	if (lightMinutes < 60) {
+		return {
+			value: parseFloat(lightMinutes.toFixed(2)),
+			unit: 'light-minutes',
+			string: `${lightMinutes.toFixed(2)} light minutes away`
+		};
+	}
+
+	const lightHours = lightMinutes / 60;
+	// Less than 24 hours
+	if (lightHours < 24) {
+		return {
+			value: parseFloat(lightHours.toFixed(2)),
+			unit: 'light-hours',
+			string: `${lightHours.toFixed(2)} light hours away`
+		};
+	}
+
+	const lightDays = lightHours / 24;
+	// Less than 365 days
+	if (lightDays < 365) {
+		return {
+			value: parseFloat(lightDays.toFixed(2)),
+			unit: 'light-days',
+			string: `${lightDays.toFixed(2)} light days away`
+		};
+	}
+
+	const lightYears = lightDays / 365.25;
+	return {
+		value: parseFloat(lightYears.toFixed(2)),
+		unit: 'light-years',
+		string: `${lightYears.toFixed(2)} light years away`
+	};
+}
+
 // Weather condition interpretation from 7timer
 function interpretWeatherConditions(data, eveningStartHour, eveningEndHour) {
 	console.log(`[Weather] Interpreting conditions for hours ${eveningStartHour}-${eveningEndHour}`);
@@ -337,6 +390,7 @@ async function analyzeTargets(date, time, latitude, longitude, elevation, viewin
 				magnitude: body.extraInfo.magnitude,
 				constellation: body.position.constellation.name,
 				distance: body.distance.fromEarth,
+				lightDistance: convertToLightDistance(parseFloat(body.distance.fromEarth.km)),
 				extraInfo: body.extraInfo
 			});
 		}
@@ -450,6 +504,7 @@ async function getViewingData(latitude, longitude, elevation, viewingLevel, even
 						magnitude: target.magnitude,
 						constellation: target.constellation,
 						distance: target.distance,
+						lightDistance: target.lightDistance,
 						hourlyData: []
 					});
 				}
@@ -500,7 +555,9 @@ async function getViewingData(latitude, longitude, elevation, viewingLevel, even
 				peakAzimuth: parseFloat(peakHour.azimuth.toFixed(1)),
 				peakDirection: getDirection(peakHour.azimuth),
 				visibleHours: visibleHours.length,
-				totalHours: data.hourlyData.length
+				totalHours: data.hourlyData.length,
+				distance: data.distance,
+				lightDistance: data.lightDistance
 			});
 		}
 	}

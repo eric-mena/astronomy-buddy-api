@@ -12,6 +12,7 @@ A Node.js REST API that provides celestial viewing recommendations based on loca
 - **Multiple Viewing Options**: Supports naked eye viewing and telescope-specific ratings (entry, intermediate, advanced telescopes)
 - **Peak Viewing Times**: Identifies optimal viewing hour for each celestial target
 - **Compass Directions**: Provides 16-point compass directions (N, NNE, NE, etc.) for locating targets in the sky
+- **Distance Information**: Provides distances from Earth in appropriate light units (light seconds, minutes, hours, days, or years)
 - **Intelligent Target Scoring**: Prioritizes targets based on magnitude, altitude, and object type
 - **Flexible Parameter Handling**: Supports both standard URL parameters and JSON-encoded parameters
 - **CORS Enabled**: Can be called from any frontend application
@@ -163,7 +164,18 @@ curl "http://localhost:3000/viewing-data?latitude=51.5074&longitude=-0.1278&elev
 				"peakAzimuth": 180.5,
 				"peakDirection": "S",
 				"visibleHours": 5,
-				"totalHours": 6
+				"totalHours": 6,
+				"distance": {
+					"fromEarth": {
+						"au": "0.00257",
+						"km": "384400"
+					}
+				},
+				"lightDistance": {
+					"value": 1.28,
+					"unit": "light-seconds",
+					"string": "1.28 light seconds away"
+				}
 			}
 		],
 		"good": [
@@ -178,10 +190,20 @@ curl "http://localhost:3000/viewing-data?latitude=51.5074&longitude=-0.1278&elev
 				"peakAzimuth": 120.3,
 				"peakDirection": "ESE",
 				"visibleHours": 6,
-				"totalHours": 6
+				"totalHours": 6,
+				"distance": {
+					"fromEarth": {
+						"au": "5.20",
+						"km": "778000000"
+					}
+				},
+				"lightDistance": {
+					"value": 43.24,
+					"unit": "light-minutes",
+					"string": "43.24 light minutes away"
+				}
 			}
 		],
-		"fair": []
 	}
 }
 ```
@@ -239,6 +261,11 @@ curl http://localhost:3000/health
 - `peakDirection` (string): 16-point compass direction at peak (N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW)
 - `visibleHours` (number): Number of hours visible above horizon during viewing window
 - `totalHours` (number): Total hours in viewing window
+- `distance` (object): Distance from Earth with AU and km values
+- `lightDistance` (object): Distance from Earth in light units
+	- `value` (number): Numeric distance value
+	- `unit` (string): Unit of measurement (light-seconds, light-minutes, light-hours, light-days, light-years)
+	- `string` (string): Human-readable distance (e.g., "8.32 light minutes away")
 
 ### Error Responses
 
@@ -468,6 +495,7 @@ function AstronomyView({ latitude, longitude, elevation }) {
 							<strong>{target.name}</strong>
 							<p>Peak time: {target.peakHour}:00 - Look {target.peakDirection}</p>
 							<p>Altitude: {target.peakAltitude}° | Magnitude: {target.magnitude}</p>
+							<p>Distance: {target.lightDistance.string}</p>
 							<p>{target.reason}</p>
 						</div>
 					))}
