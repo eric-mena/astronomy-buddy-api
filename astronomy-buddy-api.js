@@ -37,6 +37,13 @@ const viewingCapabilities = {
 	}
 };
 
+// Convert 24-hour time to 12-hour format with AM/PM
+function formatTime12Hour(hour) {
+	const period = hour >= 12 ? 'PM' : 'AM';
+	const hour12 = hour === 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+	return `${hour12}:00 ${period}`;
+}
+
 // Reverse geocode coordinates to get location name
 async function getLocationName(latitude, longitude) {
 	const apiUrl = `https://nominatim.openstreetmap.org/reverse?` +
@@ -552,6 +559,7 @@ async function getViewingData(latitude, longitude, elevation, viewingLevel, even
 				constellation: data.constellation,
 				peakAltitude: parseFloat(peakHour.altitude.toFixed(1)),
 				peakHour: peakHour.hour,
+				peakTime: formatTime12Hour(peakHour.hour),
 				peakAzimuth: parseFloat(peakHour.azimuth.toFixed(1)),
 				peakDirection: getDirection(peakHour.azimuth),
 				visibleHours: visibleHours.length,
