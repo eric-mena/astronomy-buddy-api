@@ -178,59 +178,137 @@ function interpretWeatherConditions(data, eveningStartHour, eveningEndHour) {
 		return null;
 	}
 
+	// Calculate overall averages
 	const avgCloudCover = eveningData.reduce((sum, d) => sum + d.cloudcover, 0) / eveningData.length;
 	const avgSeeing = eveningData.reduce((sum, d) => sum + d.seeing, 0) / eveningData.length;
 	const avgTransparency = eveningData.reduce((sum, d) => sum + d.transparency, 0) / eveningData.length;
 	const hasRain = eveningData.some(d => d.prec_type === 'rain' || d.prec_type === 'snow');
 
+	// Identify clear viewing windows (cloud cover < 6, no precipitation)
+	const clearWindows = [];
+	let currentWindow = null;
+
+	for (let i = 0; i < eveningData.length; i++) {
+		const point = eveningData[i];
+		const hour = (point.timepoint % 24);
+		const isGoodCondition = point.cloudcover < 6 && point.prec_type === 'none';
+
+		if (isGoodCondition) {
+			if (!currentWindow) {
+				currentWindow = {
+					startHour: hour,
+					endHour: hour,
+					cloudCover: [point.cloudcover],
+					seeing: [point.seeing],
+					transparency: [point.transparency]
+				};
+			} else {
+				currentWindow.endHour = hour;
+				currentWindow.cloudCover.push(point.cloudcover);
+				currentWindow.seeing.push(point.seeing);
+				currentWindow.transparency.push(point.transparency);
+			}
+		} else if (currentWindow) {
+			// End of clear window
+			clearWindows.push(currentWindow);
+			currentWindow = null;
+		}
+	}
+
+	// Don't forget to add the last window if it exists
+	if (currentWindow) {
+		clearWindows.push(currentWindow);
+	}
+
+	// Calculate window statistics
+	const viewingWindows = clearWindows.map(window => {
+		const avgCC = window.cloudCover.reduce((a, b) => a + b, 0) / window.cloudCover.length;
+		const avgS = window.seeing.reduce((a, b) => a + b, 0) / window.seeing.length;
+		const avgT = window.transparency.reduce((a, b) => a + b, 0) / window.transparency.length;
+
+		return {
+			startHour: window.startHour,
+			endHour: window.endHour,
+			startTime: formatTime12Hour(window.startHour),
+			endTime: formatTime12Hour(window.endHour),
+			duration: window.cloudCover.length * 3, // Each point is 3 hours
+			avgCloudCover: parseFloat(avgCC.toFixed(1)),
+			avgSeeing: parseFloat(avgS.toFixed(1)),
+			avgTransparency: parseFloat(avgT.toFixed(1))
+		};
+	});
+
 	let quality = 'excellent';
 	let score = 0;
 	let reasons = [];
+	let worthObserving = true;
 
-	if (avgCloudCover >= 7) {
-		score += 3;
-		reasons.push('heavy cloud cover');
-		quality = 'poor';
-	} else if (avgCloudCover >= 5) {
-		score += 2;
-		reasons.push('moderate cloud cover');
-		quality = quality === 'excellent' ? 'fair' : quality;
-	} else if (avgCloudCover >= 3) {
-		score += 1;
-		reasons.push('some clouds');
-		quality = quality === 'excellent' ? 'good' : quality;
-	} else {
-		reasons.push('clear skies');
-	}
-
-	if (avgSeeing <= 3) {
-		score += 2;
-		reasons.push('poor atmospheric stability');
-		quality = quality === 'excellent' ? 'fair' : (quality === 'good' ? 'fair' : quality);
-	} else if (avgSeeing <= 5) {
-		reasons.push('average atmospheric stability');
-	} else {
-		reasons.push('excellent atmospheric stability');
-	}
-
-	if (avgTransparency <= 3) {
-		score += 1;
-		reasons.push('reduced transparency');
-	} else if (avgTransparency >= 6) {
-		reasons.push('excellent transparency');
-	}
-
+	// If we have rain, it's unsuitable regardless
 	if (hasRain) {
 		score += 4;
 		reasons.push('precipitation expected');
 		quality = 'unsuitable';
+		worthObserving = false;
+	}
+	// If we have clear windows, report partial conditions
+	else if (viewingWindows.length > 0 && avgCloudCover >= 6) {
+		quality = 'partial';
+		reasons.push(`clear viewing windows available (${viewingWindows.length} window${viewingWindows.length > 1 ? 's' : ''})`);
+
+		// Add details about the windows
+		if (avgCloudCover >= 7) {
+			reasons.push('heavy cloud cover during other times');
+		} else {
+			reasons.push('moderate cloud cover during other times');
+		}
+
+		worthObserving = true;
+		score = 1; // Better than poor, not as good as consistently clear
+	}
+	// No clear windows but overall conditions evaluation
+	else {
+		if (avgCloudCover >= 7) {
+			score += 3;
+			reasons.push('heavy cloud cover');
+			quality = 'poor';
+			worthObserving = false;
+		} else if (avgCloudCover >= 5) {
+			score += 2;
+			reasons.push('moderate cloud cover');
+			quality = 'fair';
+			worthObserving = true;
+		} else if (avgCloudCover >= 3) {
+			score += 1;
+			reasons.push('some clouds');
+			quality = 'good';
+		} else {
+			reasons.push('clear skies');
+		}
+
+		if (avgSeeing <= 3) {
+			score += 2;
+			reasons.push('poor atmospheric stability');
+			quality = quality === 'excellent' ? 'fair' : (quality === 'good' ? 'fair' : quality);
+		} else if (avgSeeing <= 5) {
+			reasons.push('average atmospheric stability');
+		} else {
+			reasons.push('excellent atmospheric stability');
+		}
+
+		if (avgTransparency <= 3) {
+			score += 1;
+			reasons.push('reduced transparency');
+		} else if (avgTransparency >= 6) {
+			reasons.push('excellent transparency');
+		}
+
+		// Recheck worth observing based on final quality
+		worthObserving = quality !== 'unsuitable' && quality !== 'poor';
 	}
 
-	const worthObserving = quality !== 'unsuitable' && quality !== 'poor' && avgCloudCover < 6;
+	console.log(`[Weather] Quality: ${quality}, Cloud cover: ${avgCloudCover.toFixed(1)}, Clear windows: ${viewingWindows.length}`);
 
-	console.log(`[Weather] Quality: ${quality}, Cloud cover: ${avgCloudCover.toFixed(1)}, Seeing: ${avgSeeing.toFixed(1)}, Transparency: ${avgTransparency.toFixed(1)}`);
-
-	return {
+	const result = {
 		quality,
 		score,
 		worthObserving,
@@ -240,6 +318,16 @@ function interpretWeatherConditions(data, eveningStartHour, eveningEndHour) {
 		hasRain,
 		reasons
 	};
+
+	// Add viewing windows if any exist
+	if (viewingWindows.length > 0) {
+		result.viewingWindows = viewingWindows;
+		result.bestWindow = viewingWindows.reduce((best, current) =>
+			current.avgCloudCover < best.avgCloudCover ? current : best
+		);
+	}
+
+	return result;
 }
 
 // Get weather conditions from 7timer
